@@ -1,0 +1,9 @@
+write a wsdl2java generator in Python specifically to these wsdl files, not general purpose.
+
+Target Java 14 and the new http client
+
+Use all cool features of modern Java up until Java 14
+
+try to minimize the dependencies on anything but pure java
+
+jaxb would be okay
