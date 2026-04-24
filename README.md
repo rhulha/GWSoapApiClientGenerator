@@ -2,14 +2,19 @@
 
 `tools/wsdl2java.py` is a custom generator for the WSDL and XSD files in `wsdl/`.
 
-It generates a Java 14 Gradle project with:
+It is intentionally not a general-purpose WSDL compiler.
 
-- JAXB model classes for the imported schemas
-- interfaces for the two WSDL port types
-- `HttpClient`-based SOAP clients
+What it generates:
 
-Run it like this:
+- JAXB-annotated Java model classes for `types.xsd`, `methods.xsd`, and `events.xsd`
+- service interfaces for the two WSDL port types
+- Java 14 SOAP clients built on `java.net.http.HttpClient`
+- a minimal Gradle project using JAXB as the only external runtime dependency
+
+Usage:
 
 ```powershell
 c:/Work/Bergt/GWSOAP/GWWS2/.venv/Scripts/python.exe tools/wsdl2java.py --wsdl wsdl/groupwise.wsdl --output generated/groupwise-java14-client
 ```
+
+The output project will be written to `generated/groupwise-java14-client` by default.
