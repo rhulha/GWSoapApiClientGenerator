@@ -13,8 +13,8 @@ What it generates:
 
 Usage:
 
-```powershell
-c:/Work/Bergt/GWSOAP/GWWS2/.venv/Scripts/python.exe tools/wsdl2java.py --wsdl wsdl/groupwise.wsdl --output generated/groupwise-java14-client
+```
+python tools/wsdl2java.py --wsdl wsdl/groupwise.wsdl --output generated/groupwise-java14-client
 ```
 
 The output project will be written to `generated/groupwise-java14-client` by default.
