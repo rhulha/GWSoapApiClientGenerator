@@ -75,6 +75,7 @@ class PythonEmitter:
         self.model = model
         self.output_dir = output_dir
         self._pkg_root = output_dir
+        self._subclasses_map: dict[tuple[str, str], list[TypeDef]] | None = None
 
     # ------------------------------------------------------------------
     # Top-level emit
@@ -286,6 +287,29 @@ class PythonEmitter:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
+    # Subclass / descendant helpers
+    # ------------------------------------------------------------------
+
+    def _get_subclasses_map(self) -> dict[tuple[str, str], list[TypeDef]]:
+        if self._subclasses_map is None:
+            m: dict[tuple[str, str], list[TypeDef]] = {}
+            for td in self.model.types.values():
+                if td.base is not None and td.base.namespace != XSD_NS:
+                    m.setdefault(td.base.key, []).append(td)
+            self._subclasses_map = m
+        return self._subclasses_map
+
+    def _all_descendants(self, type_def: TypeDef) -> list[TypeDef]:
+        subclasses_map = self._get_subclasses_map()
+        result: list[TypeDef] = []
+        queue = list(subclasses_map.get((type_def.namespace, type_def.name), []))
+        while queue:
+            td = queue.pop(0)
+            result.append(td)
+            queue.extend(subclasses_map.get((td.namespace, td.name), []))
+        return result
+
+    # ------------------------------------------------------------------
     # Class type
     # ------------------------------------------------------------------
 
@@ -443,7 +467,25 @@ class PythonEmitter:
             lines += parse_lines
         lines.append("        return _f")
 
-        if not has_gw_base:
+        descendants = self._all_descendants(type_def)
+        if descendants:
+            lines += [
+                "",
+                "    @classmethod",
+                f"    def from_xml(cls, _el: ET.Element) -> {type_def.name}:",
+                "        _t = _el.get('{http://www.w3.org/2001/XMLSchema-instance}type')",
+                "        if _t and ':' in _t:",
+                "            _t = _t.split(':', 1)[1]",
+            ]
+            for desc in sorted(descendants, key=lambda d: d.name):
+                desc_module = self._module_for_ns(desc.namespace)
+                lines += [
+                    f"        if _t == {desc.name!r}:",
+                    f"            from {desc_module}.{desc.name} import {desc.name}",
+                    f"            return {desc.name}(**{desc.name}._parse_fields(_el))",
+                ]
+            lines.append("        return cls(**cls._parse_fields(_el))")
+        elif not has_gw_base:
             lines += [
                 "",
                 "    @classmethod",
