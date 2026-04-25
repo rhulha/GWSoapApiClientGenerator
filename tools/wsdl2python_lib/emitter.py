@@ -74,7 +74,7 @@ class PythonEmitter:
     def __init__(self, model: GroupWiseSchemaModel, output_dir: Path) -> None:
         self.model = model
         self.output_dir = output_dir
-        self._pkg_root = output_dir / "groupwise"
+        self._pkg_root = output_dir
 
     # ------------------------------------------------------------------
     # Top-level emit
@@ -93,19 +93,18 @@ class PythonEmitter:
 
     def _module_for_ns(self, namespace: str) -> str:
         if namespace == GROUPWISE_TYPES_NS:
-            return "groupwise.types"
+            return "gwsoap.types"
         if namespace == GROUPWISE_METHODS_NS:
-            return "groupwise.methods"
+            return "gwsoap.methods"
         if namespace == GROUPWISE_EVENTS_NS:
-            return "groupwise.events"
+            return "gwsoap.events"
         if namespace == GROUPWISE_WSDL_NS:
-            return "groupwise.service"
-        return "groupwise.misc"
+            return "gwsoap.service"
+        return "gwsoap.misc"
 
     def _subdir_for_ns(self, namespace: str) -> Path:
         module = self._module_for_ns(namespace)
-        subpkg = module.split(".", 1)[1]  # strip "groupwise."
-        return self._pkg_root / subpkg
+        return self._pkg_root / module.split(".", 1)[1]
 
     # ------------------------------------------------------------------
     # Write helpers
@@ -187,12 +186,7 @@ class PythonEmitter:
     # ------------------------------------------------------------------
 
     def _write_project_files(self) -> None:
-        self._write(
-            self.output_dir / "requirements.txt",
-            "# No mandatory runtime dependencies.\n"
-            "# Install 'requests' if you prefer it over urllib:\n"
-            "# requests>=2.28\n",
-        )
+        self._write(self.output_dir / "pyproject.toml", _PYPROJECT_TOML)
 
     # ------------------------------------------------------------------
     # Type generation dispatch
@@ -410,13 +404,22 @@ class PythonEmitter:
             lines += field_decls
 
         xml_name = type_def.root_element_name or type_def.xml_type_name or type_def.name
-        lines += [
+        to_xml_lines = [
             "",
             "    def to_xml(self, parent: ET.Element | None = None, tag: str | None = None) -> ET.Element:",
             "        _tag = tag or f'{{{_NS}}}" + xml_name + "'",
             "        _el = ET.SubElement(parent, _tag) if parent is not None else ET.Element(_tag)",
+        ]
+        if has_gw_base:
+            to_xml_lines.append(
+                f"        _el.set('{{http://www.w3.org/2001/XMLSchema-instance}}type', {type_def.name!r})"
+            )
+        to_xml_lines += [
             "        self._write_fields(_el)",
             "        return _el",
+        ]
+        lines += to_xml_lines
+        lines += [
             "",
             "    def _write_fields(self, _el: ET.Element) -> None:",
         ]
@@ -637,9 +640,9 @@ class PythonEmitter:
             imports.add("from datetime import datetime")
         elif py_type == "timedelta":
             imports.add("from datetime import timedelta")
-            imports.add("from groupwise._utils import iso_duration as _iso_duration, parse_duration as _parse_duration")
+            imports.add("from gwsoap._utils import iso_duration as _iso_duration, parse_duration as _parse_duration")
         if strategy == "b64":
-            imports.add("from groupwise._utils import b64enc as _b64enc, b64dec as _b64dec")
+            imports.add("from gwsoap._utils import b64enc as _b64enc, b64dec as _b64dec")
         elif strategy == "hex":
             pass  # bytes.fromhex / .hex() are builtins
 
@@ -660,9 +663,9 @@ class PythonEmitter:
         default_endpoint = next((op.endpoint for op in operations if op.endpoint), "http://localhost:8080")
 
         fixed_imports: list[str] = [
-            "from groupwise.soap.soap_client import SoapClient",
-            "from groupwise.soap.request_context import RequestContext",
-            "from groupwise.soap.exceptions import SoapFaultException",
+            "from gwsoap.soap.soap_client import SoapClient",
+            "from gwsoap.soap.request_context import RequestContext",
+            "from gwsoap.soap.exceptions import SoapFaultException",
         ]
         wildcard_modules: set[str] = set()
         method_lines: list[str] = []
@@ -695,8 +698,8 @@ class PythonEmitter:
             f"DEFAULT_ENDPOINT = {default_endpoint!r}",
             "",
             f"class {class_name}(SoapClient):",
-            f"    def __init__(self, endpoint: str = DEFAULT_ENDPOINT) -> None:",
-            "        super().__init__(endpoint)",
+            f"    def __init__(self, endpoint: str = DEFAULT_ENDPOINT, debug: bool = False) -> None:",
+            "        super().__init__(endpoint, debug)",
             "",
         ]
         lines += method_lines
@@ -754,14 +757,19 @@ _TYPES_NS = {types_ns!r}
 
 
 class SoapClient:
-    def __init__(self, endpoint: str) -> None:
+    def __init__(self, endpoint: str, debug: bool = False) -> None:
         self._endpoint = endpoint
+        self._debug = debug
 
     def _invoke(self, soap_action: str, request_obj: object, context: RequestContext | None) -> ET.Element:
         ctx = context or RequestContext()
         request_el = request_obj.to_xml()  # type: ignore[attr-defined]
         body_xml = ET.tostring(request_el, encoding="unicode")
         envelope = self._build_envelope(body_xml, ctx)
+
+        if self._debug:
+            print(">>> SOAP REQUEST")
+            print(envelope)
 
         req = urllib.request.Request(
             self._endpoint,
@@ -776,6 +784,10 @@ class SoapClient:
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             raw = exc.read()
+
+        if self._debug:
+            print("<<< SOAP RESPONSE")
+            print(raw.decode("utf-8", errors="replace"))
 
         doc = ET.fromstring(raw)
         body = doc.find({body_tag!r})
@@ -828,6 +840,33 @@ class SoapClient:
         return "".join(parts)
 """
 
+
+# ---------------------------------------------------------------------------
+# pyproject.toml (written verbatim into the output package)
+# ---------------------------------------------------------------------------
+
+_PYPROJECT_TOML = """\
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gwsoap"
+version = "1.0.0"
+description = "Auto-generated Python client for the GroupWise SOAP API"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+package-dir = {"gwsoap" = "."}
+packages = [
+    "gwsoap",
+    "gwsoap.types",
+    "gwsoap.methods",
+    "gwsoap.events",
+    "gwsoap.soap",
+    "gwsoap.service",
+]
+"""
 
 # ---------------------------------------------------------------------------
 # Utilities module (written verbatim into the output package)
@@ -892,18 +931,17 @@ Auto-generated Python package for the GroupWise WSDL/XSD schemas.
 ## Package layout
 
 ```
-groupwise/
-  _utils.py              helper functions (base64, ISO 8601 duration)
-  types/                 XSD types namespace classes
-  methods/               XSD methods namespace classes
-  events/                XSD events namespace classes
-  soap/
-    request_context.py   RequestContext dataclass
-    exceptions.py        SoapFaultException
-    soap_client.py       Base SOAP/HTTP client
-  service/
-    groupwise_client.py        GroupWise main service client
-    groupwise_events_client.py GroupWise events service client
+_utils.py              helper functions (base64, ISO 8601 duration)
+types/                 XSD types namespace classes
+methods/               XSD methods namespace classes
+events/                XSD events namespace classes
+soap/
+  request_context.py   RequestContext dataclass
+  exceptions.py        SoapFaultException
+  soap_client.py       Base SOAP/HTTP client
+service/
+  groupwise_client.py        GroupWise main service client
+  groupwise_events_client.py GroupWise events service client
 ```
 
 ## Usage

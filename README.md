@@ -1,6 +1,7 @@
 # GroupWise WSDL Tools
 
 `tools/wsdl2java.py` is a custom generator for the WSDL and XSD files in `wsdl/`.
+`tools/wsdl2python.py` follows the same parser/model pipeline and emits Python code.
 
 It is intentionally not a general-purpose WSDL compiler.
 
@@ -18,3 +19,11 @@ python tools/wsdl2java.py --wsdl wsdl/groupwise.wsdl --output generated/groupwis
 ```
 
 The output project will be written to `generated/groupwise-java14-client` by default.
+
+Python generator usage:
+
+```
+python tools/wsdl2python.py --wsdl wsdl/groupwise.wsdl --output generated/groupwise-python-client
+```
+
+The Python package will be written to `generated/groupwise-python-client` by default.
