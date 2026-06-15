@@ -740,8 +740,8 @@ class PythonEmitter:
             f"DEFAULT_ENDPOINT = {default_endpoint!r}",
             "",
             f"class {class_name}(SoapClient):",
-            f"    def __init__(self, endpoint: str = DEFAULT_ENDPOINT, debug: bool = False) -> None:",
-            "        super().__init__(endpoint, debug)",
+            f"    def __init__(self, endpoint: str = DEFAULT_ENDPOINT, debug: bool = False, verify_ssl: bool = True) -> None:",
+            "        super().__init__(endpoint, debug, verify_ssl)",
             "",
         ]
         lines += method_lines
@@ -787,6 +787,7 @@ class SoapFaultException(Exception):
         return f"""\
 from __future__ import annotations
 
+import ssl
 import urllib.request
 import urllib.error
 import xml.etree.ElementTree as ET
@@ -799,9 +800,15 @@ _TYPES_NS = {types_ns!r}
 
 
 class SoapClient:
-    def __init__(self, endpoint: str, debug: bool = False) -> None:
+    def __init__(self, endpoint: str, debug: bool = False, verify_ssl: bool = True) -> None:
         self._endpoint = endpoint
         self._debug = debug
+        if verify_ssl:
+            self._ssl_ctx = None
+        else:
+            self._ssl_ctx = ssl.create_default_context()
+            self._ssl_ctx.check_hostname = False
+            self._ssl_ctx.verify_mode = ssl.CERT_NONE
 
     def _invoke(self, soap_action: str, request_obj: object, context: RequestContext | None) -> ET.Element:
         ctx = context or RequestContext()
@@ -822,7 +829,7 @@ class SoapClient:
             }},
         )
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, context=self._ssl_ctx) as response:
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             raw = exc.read()
