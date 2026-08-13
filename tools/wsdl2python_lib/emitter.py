@@ -646,7 +646,7 @@ class PythonEmitter:
         if strategy in ("float", "decimal"):
             return f"{py_type}({text_expr})"
         if strategy == "date":
-            return f"date.fromisoformat({text_expr})"
+            return f"_parse_date({text_expr})"
         if strategy == "datetime":
             return f"datetime.fromisoformat({text_expr})"
         if strategy == "duration":
@@ -678,6 +678,7 @@ class PythonEmitter:
             imports.add("from decimal import Decimal")
         elif py_type == "date":
             imports.add("from datetime import date")
+            imports.add("from gwsoap._utils import parse_date as _parse_date")
         elif py_type == "datetime":
             imports.add("from datetime import datetime")
         elif py_type == "timedelta":
@@ -926,7 +927,16 @@ from __future__ import annotations
 
 import base64
 import re
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+
+
+def parse_date(s: str) -> date:
+    # GroupWise sends a full dateTime in some xsd:date fields (e.g. Task startDate).
+    s = s.strip()
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
 
 
 def b64enc(data: bytes) -> str:
